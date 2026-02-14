@@ -164,24 +164,18 @@ async def metadata(filename: str, channel: int, msg_id) -> dict | None:
         LOGGER.info(f"Skipping {filename}: contains 'combined'")
         return None
 
-    # Skip split/multipart files - DISABLED
+    # Skip split/multipart files
     # if Telegram.SKIP_MULTIPART:
-    # multipart_pattern = compile(r'(?:part|cd|disc|disk)[s._-]*\d+(?=\.\w+$)', IGNORECASE)
-    # if multipart_pattern.search(filename):
-    #     LOGGER.info(f"Skipping {filename}: seems to be a split/multipart file")
-    #     return None
+    multipart_pattern = compile(r'(?:part|cd|disc|disk)[s._-]*\d+(?=\.\w+$)', IGNORECASE)
+    if multipart_pattern.search(filename):
+        LOGGER.info(f"Skipping {filename}: seems to be a split/multipart file")
+        return None
 
     title = parsed.get("title")
     season = parsed.get("season")
     episode = parsed.get("episode")
     year = parsed.get("year")
     quality = parsed.get("resolution")
-    
-    # Extract part info to append to quality (avoids overwrite if REPLACE_MODE is True)
-    part_match = re.search(r'(?:part|cd|disc|disk)[s._-]*(\d+)', filename, re.IGNORECASE)
-    if part_match and quality:
-        quality += f" Part {part_match.group(1)}"
-        
     if isinstance(season, list) or isinstance(episode, list):
         LOGGER.warning(f"Invalid season/episode format for {filename}: {parsed}")
         return None
