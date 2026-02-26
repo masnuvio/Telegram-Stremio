@@ -222,13 +222,38 @@ async def media_streamer(
     start, end = parse_range_header(range_header, file_size)
     req_length = end - start + 1
 
+    file_name = file_id.file_name or f"{secrets.token_hex(4)}.bin"
+    mime_type = file_id.mime_type or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+
+    if "." not in file_name and "/" in mime_type:
+        file_name = f"{file_name}.{mime_type.split('/')[1]}"
+
+    # HEAD: return headers only (no body), include Content-Length so the
+    # client knows the file size without opening a stream.
+    from fastapi.responses import Response as PlainResponse
+    stream_id = secrets.token_hex(8)
+    if request.method == "HEAD":
+        head_headers = {
+            "Content-Type": mime_type,
+            "Content-Length": str(req_length),
+            "Content-Disposition": f'inline; filename="{file_name}"',
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=3600, immutable",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
+            "X-Stream-Id": stream_id,
+        }
+        if range_header:
+            head_headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
+        return PlainResponse(status_code=206 if range_header else 200, headers=head_headers)
+
     chunk_size = streamer.CHUNK_SIZE
     offset = start - (start % chunk_size)
     first_part_cut = start - offset
     last_part_cut = (end % chunk_size) + 1
     part_count = math.ceil(end / chunk_size) - math.floor(offset / chunk_size)
 
-    stream_id = secrets.token_hex(8)
+
     meta = {
         "request_path": str(request.url.path),
         "client_host": request.client.host if request.client else None,
@@ -254,15 +279,8 @@ async def media_streamer(
 
     asyncio.create_task(track_usage_from_stats(stream_id, token, token_data))
 
-    file_name = file_id.file_name or f"{secrets.token_hex(4)}.bin"
-    mime_type = file_id.mime_type or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
-
-    if "." not in file_name and "/" in mime_type:
-        file_name = f"{file_name}.{mime_type.split('/')[1]}"
-
     headers = {
         "Content-Type": mime_type,
-        "Content-Length": str(req_length),
         "Content-Disposition": f'inline; filename="{file_name}"',
         "Accept-Ranges": "bytes",
         "Cache-Control": "public, max-age=3600, immutable",

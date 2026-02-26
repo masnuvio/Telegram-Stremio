@@ -29,6 +29,7 @@ class ByteStreamer:
         asyncio.create_task(self._prewarm_sessions())
 
     async def _prewarm_sessions(self):
+        await asyncio.sleep(2.0)
         common_dcs = [1, 2, 4, 5]  # Main Telegram DCs
         LOGGER.debug("Pre-warming media sessions for common DCs...")
         
