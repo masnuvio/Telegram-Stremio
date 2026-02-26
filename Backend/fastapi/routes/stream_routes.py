@@ -285,20 +285,26 @@ async def media_streamer(
     # Extract original title from the URL path name, fallback to raw name
     decoded_name = unquote(request.path_params.get("name", ""))
     
-    # Look up the real title from the database using the Stremio stream_id_hash
-    db_title = None
-    if stream_id_hash:
-        db_title = await db.get_title_by_stream_id(stream_id_hash)
-        LOGGER.info(f"Stream lookup for hash '{stream_id_hash}' returned title: {db_title}")
-        
-    final_title = db_title if db_title else decoded_name
+    stream_id = secrets.token_hex(8)
     
     meta = {
         "request_path": str(request.url.path),
         "client_host": request.client.host if request.client else None,
-        "title": final_title,
+        "title": decoded_name,  # Temporary title, will be updated in background
         "user_name": token_data.get("name", "Unknown") if token_data else "Unknown"
     }
+
+    # Asynchronously lookup real title to avoid blocking the stream startup (30-50s DB scan)
+    if stream_id_hash:
+        async def fetch_real_title():
+            try:
+                db_title = await db.get_title_by_stream_id(stream_id_hash)
+                if db_title and stream_id in ACTIVE_STREAMS:
+                    ACTIVE_STREAMS[stream_id]["meta"]["title"] = db_title
+                    LOGGER.info(f"Background stream lookup for '{stream_id_hash}' assigned title: {db_title}")
+            except Exception as e:
+                LOGGER.error(f"Background title lookup failed: {e}")
+        asyncio.create_task(fetch_real_title())
 
     prefetch_count = Telegram.PARALLEL
     parallelism = Telegram.PRE_FETCH
