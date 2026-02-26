@@ -197,6 +197,30 @@ async def stream_handler(
         raise HTTPException(status_code=400, detail="Missing id")
 
     chat_id = int(f"-100{decoded['chat_id']}")
+
+    # FAST HEAD RETURN: Stremio pings `HEAD` initially. We skip fetching `StreamBot.get_messages` 
+    # to avoid double caching blocks and pyrogram connection blocks. We estimate the file properties temporarily.
+    if request.method == "HEAD":
+        # Guess mime type based on the name passed in the URL
+        file_name = unquote(request.path_params.get("name", f"{secrets.token_hex(4)}.bin"))
+        mime_type = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+        if "." not in file_name and "/" in mime_type:
+            file_name = f"{file_name}.{mime_type.split('/')[1]}"
+
+        # Because we skip DB and Pyrogram, we do not know the exact file_size, but Stremio
+        # often only needs to know that the endpoint *exists* (200 OK) for video streams before launching the GET
+        from fastapi.responses import Response as PlainResponse
+        head_headers = {
+            "Content-Type": mime_type,
+            "Content-Disposition": f'inline; filename="{file_name}"',
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=3600, immutable",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
+            "X-Stream-Id": id,
+        }
+        return PlainResponse(status_code=200, headers=head_headers)
+
     message = await StreamBot.get_messages(chat_id, int(msg_id))
     file = message.video or message.document
     secure_hash = file.file_unique_id[:6]
@@ -252,25 +276,6 @@ async def media_streamer(
 
     if "." not in file_name and "/" in mime_type:
         file_name = f"{file_name}.{mime_type.split('/')[1]}"
-
-    # HEAD: return headers only (no body), include Content-Length so the
-    # client knows the file size without opening a stream.
-    from fastapi.responses import Response as PlainResponse
-    stream_id = secrets.token_hex(8)
-    if request.method == "HEAD":
-        head_headers = {
-            "Content-Type": mime_type,
-            "Content-Length": str(req_length),
-            "Content-Disposition": f'inline; filename="{file_name}"',
-            "Accept-Ranges": "bytes",
-            "Cache-Control": "public, max-age=3600, immutable",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
-            "X-Stream-Id": stream_id,
-        }
-        if range_header:
-            head_headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
-        return PlainResponse(status_code=206 if range_header else 200, headers=head_headers)
 
     # Adaptive chunk size based on this client's recent measured throughput
     chunk_size = get_adaptive_chunk_size(index)
