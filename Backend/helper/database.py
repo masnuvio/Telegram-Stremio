@@ -54,6 +54,18 @@ class Database:
                 
                 LOGGER.info(f"{db_type} Database connected successfully: {masked_uri}")
 
+                if index > 0:
+                    try:
+                        # Ensure queries triggered by Stremio do not require 30s collection scans
+                        await self.dbs[db_key]["movie"].create_index("imdb_id", background=True)
+                        await self.dbs[db_key]["tv"].create_index("imdb_id", background=True)
+                        await self.dbs[db_key]["movie"].create_index("tmdb_id", background=True)
+                        await self.dbs[db_key]["tv"].create_index("tmdb_id", background=True)
+                        await self.dbs[db_key]["movie"].create_index("title", background=True)
+                        await self.dbs[db_key]["tv"].create_index("title", background=True)
+                    except Exception as idx_e:
+                        LOGGER.warning(f"Index creation warning for {db_key}: {idx_e}")
+
             state = await self.dbs["tracking"]["state"].find_one({"_id": "db_index"})
             if not state:
                 await self.dbs["tracking"]["state"].insert_one({"_id": "db_index", "current_index": 1})
