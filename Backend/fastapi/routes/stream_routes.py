@@ -323,16 +323,10 @@ async def media_streamer(
 
     asyncio.create_task(track_usage_from_stats(stream_id, token, token_data))
 
-    # GET: do NOT set Content-Length on the StreamingResponse.
-    # If a Telegram chunk fetch times out mid-stream the generator exits early,
-    # delivering fewer bytes than the declared length.  h11 enforces
-    # Content-Length strictly and raises LocalProtocolError in that case.
-    # Without Content-Length, uvicorn uses chunked transfer encoding which
-    # handles early termination gracefully.  Stremio / media players
-    # are fine with chunked 206 responses.
     headers = {
         "Content-Type": mime_type,
         "Content-Disposition": f'inline; filename="{file_name}"',
+        "Content-Length": str(req_length),
         "Accept-Ranges": "bytes",
         "Cache-Control": "public, max-age=3600, immutable",
         "Access-Control-Allow-Origin": "*",
