@@ -426,7 +426,12 @@ class ByteStreamer:
             current_dc = await self.client.storage.dc_id()
 
             if dc != current_dc:
-                auth_key = await Auth(self.client, dc, test_mode).create()
+                # Add a wrapper to stop Auth.create() from hanging for 30-40s entirely blocking the first stream start
+                try:
+                    auth_key = await asyncio.wait_for(Auth(self.client, dc, test_mode).create(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    LOGGER.error(f"Media session Auth for DC {dc} timed out after 5s. Stremio stream will take a long time to start.")
+                    raise
             else:
                 auth_key = await self.client.storage.auth_key()
 

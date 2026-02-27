@@ -198,17 +198,13 @@ async def stream_handler(
 
     chat_id = int(f"-100{decoded['chat_id']}")
 
-    # FAST HEAD RETURN: Stremio pings `HEAD` initially. We skip fetching `StreamBot.get_messages` 
-    # to avoid double caching blocks and pyrogram connection blocks. We estimate the file properties temporarily.
+    # FAST HEAD RETURN: Stremio pings `HEAD` initially.
     if request.method == "HEAD":
-        # Guess mime type based on the name passed in the URL
         file_name = unquote(request.path_params.get("name", f"{secrets.token_hex(4)}.bin"))
         mime_type = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
         if "." not in file_name and "/" in mime_type:
             file_name = f"{file_name}.{mime_type.split('/')[1]}"
 
-        # Because we skip DB and Pyrogram, we do not know the exact file_size, but Stremio
-        # often only needs to know that the endpoint *exists* (200 OK) for video streams before launching the GET
         from fastapi.responses import Response as PlainResponse
         head_headers = {
             "Content-Type": mime_type,
@@ -221,15 +217,11 @@ async def stream_handler(
         }
         return PlainResponse(status_code=200, headers=head_headers)
 
-    message = await StreamBot.get_messages(chat_id, int(msg_id))
-    file = message.video or message.document
-    secure_hash = file.file_unique_id[:6]
-
     return await media_streamer(
         request=request,
         chat_id=chat_id,
         msg_id=int(msg_id),
-        secure_hash=secure_hash,
+        secure_hash="CHECK_INSIDE", # Deferred to media_streamer to avoid duplicate blocking API call
         token=token,
         token_data=token_data,
         stream_id_hash=id,
@@ -252,7 +244,7 @@ async def media_streamer(
 
     file_id = await temp_streamer.get_file_properties(chat_id=chat_id, message_id=msg_id)
 
-    if secure_hash != "SKIP_HASH_CHECK":  # Don't check this it is for my Webdav
+    if secure_hash != "SKIP_HASH_CHECK" and secure_hash != "CHECK_INSIDE":
         if file_id.unique_id[:6] != secure_hash:
             raise InvalidHash
 
